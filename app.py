@@ -28,7 +28,10 @@ FlaskInstrumentor().instrument_app(app)
 @app.route('/hello')
 def hello_world():
     with tracer.start_as_current_span("hello_world_span"):
+        span = trace.get_current_span()
+        span.set_attribute("custom.log", "INFO")
+        span.set_attribute("custom.log", "HELLO")
         return 'Hello, World!'
 
 if __name__ == '__main__':
-    app.run(debug=True,port=5000)
+    app.run(debug=True)
