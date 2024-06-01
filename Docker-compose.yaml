@@ -1,0 +1,44 @@
+version: "2"
+services:
+
+  # ADOT Collector
+  aws-ot-collector:
+    image: public.ecr.aws/aws-observability/aws-otel-collector:latest
+    command: ["--config=/etc/otel-agent-config.yaml"]
+    environment:
+      - AWS_REGION=us-west-2
+      - AWS_ACCESS_KEY_ID=###
+      - AWS_SECRET_ACCESS_KEY=##
+    volumes:
+      - ./config-test.yaml:/etc/otel-agent-config.yaml
+      - ~/.aws:/home/aoc/.aws
+    ports:
+      - "1777:1777"   # pprof extension
+      - "55679:55679" # zpages extension
+      - "13133"       # health_check
+
+  # Sample web application which will generate Metrics and Traces data if the enable API is called
+  ot-sample-app:
+    build:
+      context: . # Adjust this to the directory containing your Dockerfile
+      dockerfile: Dockerfile  # Adjust this if your Dockerfile has a different name
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://aws-ot-collector:4317
+      - OTEL_RESOURCE_ATTRIBUTES=service.namespace=FlaskAppDocker,service.name=FlaskDockerDemoService
+      - AWS_REGION=us-west-2
+      - OTEL_METRICS_EXPORTER=otlp
+      - LISTEN_ADDRESS=0.0.0.0:5000 # web server endpoint
+      - OTLP_ENDPOINT=http://aws-ot-collector:5000 # Pass OTLP_ENDPOINT to the app
+    volumes:
+      - ~/.aws:/root/.aws # test auto generated trace on S3 access
+    ports:
+      - "5000:5000"   # http sample requests
+    depends_on:
+      - aws-ot-collector
+
+  # Traffic generator will make HTTP requests to ot-sample-app that sends OTel Metrics and Traces
+  traffic-generator:
+    image: ellerbrock/alpine-bash-curl-ssl:latest
+    command: [ "/bin/bash", "-c", "sleep 10; while :; do curl ot-sample-app:5000/hello > /dev/null 1>&1; sleep 2; curl ot-sample-app:5000/hello > /dev/null 2>&1; sleep 5; done" ]
+    depends_on:
+      - ot-sample-app
